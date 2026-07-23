@@ -79,30 +79,53 @@ function renderInlineMarkdown(value: string, prefix: string): ReactNode[] {
   });
 }
 
+function tableCells(line: string) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim().replace(/\\\|/g, "|"));
+}
+
+function isTableDivider(line: string) {
+  const cells = tableCells(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s/g, "")));
+}
+
 function MarkdownMessage({ content }: { content: string }) {
   const blocks: ReactNode[] = [];
   const lines = content.split("\n");
   let codeLines: string[] = [];
   let inCode = false;
 
-  lines.forEach((line, index) => {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     const key = `markdown-${index}`;
     if (line.trim().startsWith("```")) {
       if (inCode) blocks.push(<pre className="chat-code" key={key}>{codeLines.join("\n")}</pre>);
       codeLines = [];
       inCode = !inCode;
-      return;
+      continue;
     }
-    if (inCode) { codeLines.push(line); return; }
-    if (!line.trim()) { blocks.push(<div className="markdown-space" key={key} />); return; }
-    if (line.startsWith("### ")) { blocks.push(<h4 key={key}>{renderInlineMarkdown(line.slice(4), key)}</h4>); return; }
-    if (line.startsWith("## ")) { blocks.push(<h3 key={key}>{renderInlineMarkdown(line.slice(3), key)}</h3>); return; }
-    if (line.startsWith("# ")) { blocks.push(<h2 key={key}>{renderInlineMarkdown(line.slice(2), key)}</h2>); return; }
-    if (/^[-*]\s+/.test(line)) { blocks.push(<div className="markdown-list" key={key}><span>•</span><p>{renderInlineMarkdown(line.replace(/^[-*]\s+/, ""), key)}</p></div>); return; }
-    if (/^\d+\.\s+/.test(line)) { blocks.push(<div className="markdown-list ordered" key={key}><span>{line.match(/^\d+/)?.[0]}.</span><p>{renderInlineMarkdown(line.replace(/^\d+\.\s+/, ""), key)}</p></div>); return; }
-    if (line.startsWith("> ")) { blocks.push(<blockquote key={key}>{renderInlineMarkdown(line.slice(2), key)}</blockquote>); return; }
+    if (inCode) { codeLines.push(line); continue; }
+    if (line.includes("|") && lines[index + 1] && isTableDivider(lines[index + 1])) {
+      const headers = tableCells(line);
+      const divider = tableCells(lines[index + 1]);
+      const rows: string[][] = [];
+      let rowIndex = index + 2;
+      while (rowIndex < lines.length && lines[rowIndex].includes("|") && lines[rowIndex].trim()) {
+        rows.push(tableCells(lines[rowIndex]));
+        rowIndex += 1;
+      }
+      blocks.push(<div className="markdown-table-wrap" key={key}><table><thead><tr>{headers.map((header, cellIndex) => <th key={`${key}-h-${cellIndex}`} className={divider[cellIndex]?.startsWith(":") && divider[cellIndex]?.endsWith(":") ? "center" : divider[cellIndex]?.endsWith(":") ? "right" : ""}>{renderInlineMarkdown(header, `${key}-h-${cellIndex}`)}</th>)}</tr></thead><tbody>{rows.map((row, dataIndex) => <tr key={`${key}-r-${dataIndex}`}>{headers.map((_, cellIndex) => <td key={`${key}-c-${dataIndex}-${cellIndex}`} className={divider[cellIndex]?.startsWith(":") && divider[cellIndex]?.endsWith(":") ? "center" : divider[cellIndex]?.endsWith(":") ? "right" : ""}>{renderInlineMarkdown(row[cellIndex] ?? "", `${key}-c-${dataIndex}-${cellIndex}`)}</td>)}</tr>)}</tbody></table></div>);
+      index = rowIndex - 1;
+      continue;
+    }
+    if (!line.trim()) { blocks.push(<div className="markdown-space" key={key} />); continue; }
+    if (line.startsWith("### ")) { blocks.push(<h4 key={key}>{renderInlineMarkdown(line.slice(4), key)}</h4>); continue; }
+    if (line.startsWith("## ")) { blocks.push(<h3 key={key}>{renderInlineMarkdown(line.slice(3), key)}</h3>); continue; }
+    if (line.startsWith("# ")) { blocks.push(<h2 key={key}>{renderInlineMarkdown(line.slice(2), key)}</h2>); continue; }
+    if (/^[-*]\s+/.test(line)) { blocks.push(<div className="markdown-list" key={key}><span>•</span><p>{renderInlineMarkdown(line.replace(/^[-*]\s+/, ""), key)}</p></div>); continue; }
+    if (/^\d+\.\s+/.test(line)) { blocks.push(<div className="markdown-list ordered" key={key}><span>{line.match(/^\d+/)?.[0]}.</span><p>{renderInlineMarkdown(line.replace(/^\d+\.\s+/, ""), key)}</p></div>); continue; }
+    if (line.startsWith("> ")) { blocks.push(<blockquote key={key}>{renderInlineMarkdown(line.slice(2), key)}</blockquote>); continue; }
     blocks.push(<p key={key}>{renderInlineMarkdown(line, key)}</p>);
-  });
+  }
   if (inCode) blocks.push(<pre className="chat-code" key="markdown-unclosed">{codeLines.join("\n")}</pre>);
   return <div className="markdown-message">{blocks}</div>;
 }
