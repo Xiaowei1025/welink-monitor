@@ -12,7 +12,7 @@
 
 1. 在内网服务器安装并登录 `welink-cli`，使用 `welink-cli auth status` 校验登录状态。
 2. 部署一个受认证保护的桥接服务：负责执行 `query-recent-conversation`、`query-history-message`、`send-to-group`、`send-to-user`，并以 JSON 返回结果。
-3. 为本应用配置 `.env` 中的 `WELINK_AGENT_BRIDGE_URL`、桥接令牌、公司 AI 网关地址与服务端密钥。不要将任何凭证暴露给浏览器。
+3. 为本应用配置 `.env` 中的 `WELINK_AGENT_BRIDGE_URL`、桥接令牌、AI 服务地址、模型名称与服务端密钥。当前 AI 适配层兼容 OpenAI Chat Completions：`AI_BASE_URL=https://api.deepseek.com`、`AI_MODEL=deepseek-v4-flash`。不要将任何凭证暴露给浏览器。
 4. 在 D1 中保存消息源、游标、执行记录和报告；首轮运行拉取指定时间范围，后续运行使用 `--message-id` 与 `--query-direction` 增量读取。
 5. 接入企业 SSO、角色权限、审计日志和消息保存期限策略后，再启用自动发送。
 
@@ -20,4 +20,4 @@
 
 讨论群报告至少覆盖问题背景、最新进展、根因状态、下一步计划、参与者及风险。模型输出须区分已确认事实、讨论中的判断和待验证结论；不要将推测写成根因。
 
-详细的接口契约、运行流程与排障说明见 [HANDOFF.md](./HANDOFF.md)。
+网页的“一键分析”会调用服务端 `/api/analyze`，由服务端再调用 AI 服务；当前传入的是演示消息源元数据，待 WeLink 内网桥接完成后替换为真实标准化消息。详细的接口契约、运行流程与排障说明见 [HANDOFF.md](./HANDOFF.md)。

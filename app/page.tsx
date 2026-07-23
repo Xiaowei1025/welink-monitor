@@ -33,7 +33,8 @@ export default function Home() {
   const [isRunning, setIsRunning] = useState(false);
   const [lastRun, setLastRun] = useState("今天 07:42");
   const [showAdd, setShowAdd] = useState(false);
-  const [notice, setNotice] = useState("已连接模拟数据源 · 部署到公司内网后将调用 WeLink CLI");
+  const [notice, setNotice] = useState("AI 分析服务已接入 · WeLink 消息读取仍等待公司内网桥接");
+  const [analysisReport, setAnalysisReport] = useState<string | null>(null);
 
   const selected = sources.find((source) => source.id === selectedId) ?? sources[0];
   const enabledSources = sources.filter((source) => source.enabled);
@@ -51,18 +52,29 @@ export default function Home() {
     setSources((current) => current.map((source) => (source.id === id ? { ...source, ...patch } : source)));
   }
 
-  function runAnalysis() {
+  async function runAnalysis() {
     if (enabledSources.length === 0) {
       setNotice("请至少启用一个消息源后再执行分析。");
       return;
     }
     setIsRunning(true);
-    setNotice("正在读取已启用消息源，并进行问题归并与风险识别…");
-    window.setTimeout(() => {
+    setNotice("正在调用 AI 生成巡检报告…");
+    try {
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sources: enabledSources }),
+      });
+      const payload = await response.json() as { report?: string; error?: string; model?: string };
+      if (!response.ok || !payload.report) throw new Error(payload.error ?? "未获得报告");
+      setAnalysisReport(payload.report);
       setIsRunning(false);
       setLastRun("刚刚");
-      setNotice(`分析完成：已整理 ${enabledSources.length} 个消息源、${totalMessages} 条消息；报告尚未发送。`);
-    }, 1450);
+      setNotice(`AI 分析完成：已整理 ${enabledSources.length} 个消息源、${totalMessages} 条消息；报告尚未发送。`);
+    } catch (error) {
+      setIsRunning(false);
+      setNotice(error instanceof Error ? `分析未完成：${error.message}` : "分析未完成，请检查 AI 服务配置。");
+    }
   }
 
   function addSource(event: FormEvent<HTMLFormElement>) {
@@ -94,8 +106,8 @@ export default function Home() {
           <a className="nav-item" href="#automation"><span>◷</span>自动化</a>
         </nav>
         <div className="sidebar-bottom">
-          <div className="connection"><span className="dot" />内网桥接待配置</div>
-          <p>当前为安全演示模式<br />不会读取或发送 WeLink 消息</p>
+          <div className="connection"><span className="dot" />AI 服务端调用已启用</div>
+          <p>WeLink 内网桥接待配置<br />不会读取或发送 WeLink 消息</p>
         </div>
       </aside>
 
@@ -164,7 +176,7 @@ export default function Home() {
         <section className="workspace-grid lower-grid" id="reports">
           <section className="panel report-panel">
             <div className="panel-heading"><div><p className="eyebrow">最新分析结果</p><h2>Atlas 900 节点 GPU 温度告警</h2></div><span className="status-pill">需要跟进</span></div>
-            <p className="report-lead">近 3 天内共 42 条相关讨论。问题仍在定位阶段，业务侧训练任务已出现间歇性降速。</p>
+            {analysisReport ? <pre className="ai-report">{analysisReport}</pre> : <p className="report-lead">点击“一键分析”后将由 AI 根据已启用消息源生成巡检报告。当前尚未接入真实 WeLink 聊天正文。</p>}
             <div className="report-columns">
               <div><span>问题背景</span><p>Atlas 900 训练节点出现 GPU 过温告警，集中在机柜 A03 的 4 台设备。</p></div>
               <div><span>最新进展</span><p>已完成风扇转速与进风温度核验，待更换一台异常风扇模组。</p></div>

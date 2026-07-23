@@ -13,6 +13,7 @@
 - 持久化结构：`db/schema.ts` 定义 `message_sources` 与 `report_runs` 两张 D1 表。
 - 平台绑定：`.openai/hosting.json` 已声明 `DB` D1 逻辑绑定。
 - 配置模板：`.env.example`。真实 `.env` 必须只存在于内网服务器或受管密钥系统。
+- AI 适配：`app/api/analyze/route.ts` 通过 OpenAI Chat Completions 兼容接口调用模型；密钥只从 `AI_API_KEY` 读取。
 
 ## WeLink CLI 对接
 
@@ -47,6 +48,14 @@ welink-cli im send-to-user --receiver "<工号>" --text "<报告>"
 4. 调用公司 AI 网关分析。提示词要求区分“已确认 / 判断中 / 待验证”。
 5. 保存 `report_runs`、报告正文、每个来源的新游标和审计日志。
 6. 网页展示报告；仅在用户确认或自动化规则明确允许后发送给启用的接收方。
+
+## AI 服务配置与排障
+
+当前已验证的服务端环境变量为：`AI_BASE_URL=https://api.deepseek.com`、`AI_MODEL=deepseek-v4-flash`、`AI_API_KEY=<仅存密钥系统>`。对 Anthropic 兼容 API，应单独实现协议适配，不能仅将地址改为 `/anthropic` 后复用 Chat Completions 请求体。
+
+`POST /api/analyze` 接收已启用消息源的名称、类型、备注、范围和消息数量，调用模型后返回 `{ report, model }`。该接口会限制字段长度和来源数量，且不会将上游响应、请求头或密钥返回给浏览器。
+
+当前阶段传入的是演示元数据，因此报告会明确要求模型不要虚构故障事实。接入真实 WeLink 数据后，必须在调用前完成消息脱敏、去重、时间过滤、附件处理与权限校验。
 
 ## 尚需完成
 
