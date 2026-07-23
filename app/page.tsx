@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 type SourceKind = "通报群" | "讨论群" | "个人";
@@ -136,6 +137,7 @@ export default function Home() {
   const [isRunning, setIsRunning] = useState(false);
   const [lastRun, setLastRun] = useState("今天 07:42");
   const [showAdd, setShowAdd] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [notice, setNotice] = useState("AI 分析服务已接入 · WeLink 消息读取仍等待公司内网桥接");
   const [analysisReport, setAnalysisReport] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -352,6 +354,7 @@ export default function Home() {
             <h1>把群里的杂音，变成可执行的问题通报。</h1>
           </div>
           <div className="top-actions">
+            <button className="help-button" onClick={() => setShowHelp(true)} aria-haspopup="dialog"><span>?</span>使用帮助</button>
             <button className="ghost-button" onClick={() => setNotice("发送前预览已打开：当前报告将发送给 2 个启用接收方。")}>发送前预览</button>
             <button className="primary-button" onClick={runAnalysis} disabled={isRunning}>{isRunning ? "分析中…" : "一键分析"}</button>
           </div>
@@ -481,6 +484,7 @@ export default function Home() {
       </section>
 
       {showAdd && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="新增消息源"><form className="modal" onSubmit={addSource}><div className="modal-heading"><div><p className="eyebrow">新增消息源</p><h2>选择要巡检的会话</h2></div><button type="button" className="close-button" onClick={() => setShowAdd(false)}>×</button></div><label>类型<select name="kind" defaultValue="讨论群"><option>通报群</option><option>讨论群</option><option>个人</option></select></label><label>名称<input name="name" placeholder="例如：服务器硬件问题群" autoFocus /></label><label>群 ID 或工号<input name="target" placeholder="例如：1234567891011 或 a00123456" /></label><label>备注<input name="note" placeholder="说明此消息源的用途" /></label><button className="primary-button" type="submit">新增并启用</button></form></div>}
+      {showHelp && <div className="modal-backdrop help-backdrop" role="dialog" aria-modal="true" aria-label="WeLink 巡检台使用帮助"><section className="help-modal"><div className="modal-heading help-modal-heading"><div><p className="eyebrow">新手使用帮助</p><h2>5 分钟上手 WeLink 巡检台</h2></div><button type="button" className="close-button" aria-label="关闭使用帮助" onClick={() => setShowHelp(false)}>×</button></div><div className="help-hero"><Image src="/og.png" alt="服务器硬件问题汇总示意图" fill sizes="(max-width: 720px) 100vw, 920px" priority /><div><span>从群消息到闭环</span><strong>让每一个问题<br />都有进展、有责任人、有结果。</strong><p>先配置消息源，再由 AI 帮你识别风险、持续追问并推动行动。</p></div></div><div className="help-steps"><article><span className="help-step-number">1</span><div><b>配置要看的会话</b><p>在“消息源”中添加通报群、讨论群或工号；关闭已闭环的问题群即可减少噪音。</p></div></article><article><span className="help-step-number">2</span><div><b>一键分析，先看风险</b><p>点击右上角“一键分析”，优先关注 P1 风险、今日必办和超过截止时间的行动项。</p></div></article><article><span className="help-step-number">3</span><div><b>用问题卡片推动闭环</b><p>每个问题集中展示状态、责任人、消息证据和下一步；完成行动项后直接勾选留痕。</p></div></article><article><span className="help-step-number">4</span><div><b>向 AI 连续追问</b><p>在“智能追问”中问风险、责任人或下一步。支持流式回答、Markdown 和表格。</p></div></article><article><span className="help-step-number">5</span><div><b>定时汇总与通报</b><p>设置工作日 08:00 自动执行；确认报告后再投递给指定群或个人。</p></div></article></div><div className="help-callout"><span>◎</span><p><b>当前阶段说明：</b>网页外网版使用演示数据。部署到公司内网并接入 WeLink CLI 桥接后，才会读取真实群消息、跳转原消息并执行发送。</p></div><div className="help-footer"><span>需要帮助时，优先查看“问题闭环台账”的证据时间线与行动项。</span><b>作者：江小伟 00983211</b></div></section></div>}
     </main>
   );
 }
