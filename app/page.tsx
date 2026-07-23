@@ -29,8 +29,43 @@ const recipients = [
 
 type ChatRole = "user" | "assistant";
 type ChatMessage = { id: string; role: ChatRole; content: string };
+type IssueStatus = "处理中" | "待协调" | "待观察" | "已闭环";
+type ActionStatus = "待执行" | "进行中" | "已完成";
+type Evidence = { id: number; sourceName: string; author: string; messageTime: string; excerpt: string; isKey: boolean };
+type ActionItem = { id: number; title: string; owner: string; dueAt: string | null; status: ActionStatus; priority: string };
+type Issue = {
+  id: number; title: string; severity: "P1" | "P2" | "P3"; status: IssueStatus; impact: string; owner: string; dueAt: string | null;
+  updatedAt: string; riskReason: string; nextStep: string; isDemo: boolean; evidence: Evidence[]; actions: ActionItem[];
+};
 
 const CHAT_STORAGE_KEY = "welink-monitor-chat-history-v1";
+
+const initialIssues: Issue[] = [
+  {
+    id: -1, title: "Atlas 900 节点 GPU 温度告警", severity: "P1", status: "处理中", impact: "训练任务存在降频与中断风险", owner: "张工", dueAt: "今天 16:00", updatedAt: "今天 10:24", isDemo: true,
+    riskReason: "同一机柜已有 4 台设备出现过温，异常风扇模组尚未完成替换验证。", nextStep: "完成风扇模组替换，复测 30 分钟温度曲线并回填验证结论。",
+    evidence: [
+      { id: -11, sourceName: "Atlas 900 故障讨论", author: "张工", messageTime: "今天 09:12", excerpt: "A03-04 节点 GPU 温度连续 10 分钟超过阈值，已先下线训练任务。", isKey: true },
+      { id: -12, sourceName: "服务器硬件问题通报", author: "王工", messageTime: "今天 10:24", excerpt: "风扇转速存在波动，备件已申请，等待更换后验证。", isKey: true },
+    ],
+    actions: [
+      { id: -101, title: "更换异常风扇模组", owner: "张工", dueAt: "今天 16:00", status: "进行中", priority: "紧急" },
+      { id: -102, title: "复测 GPU 温度曲线并给出验证结论", owner: "王工", dueAt: "今天 17:00", status: "待执行", priority: "紧急" },
+    ],
+  },
+  {
+    id: -2, title: "KunLun 主板 RMA 备件到货延期", severity: "P2", status: "待协调", impact: "2 台业务备用机恢复计划延后", owner: "李工", dueAt: "今天 14:00", updatedAt: "今天 09:40", isDemo: true,
+    riskReason: "备件交期未确认，超过承诺窗口后将影响备用资源池。", nextStep: "向供应链确认到货时间；若无法满足，申请同型号备件调拨。",
+    evidence: [{ id: -21, sourceName: "KunLun 主板 RMA 讨论", author: "李工", messageTime: "今天 09:40", excerpt: "供应商暂未给出明确到货日期，备用机恢复计划需重新评估。", isKey: true }],
+    actions: [{ id: -201, title: "确认备件到货时间并给出调拨预案", owner: "李工", dueAt: "今天 14:00", status: "待执行", priority: "高" }],
+  },
+  {
+    id: -3, title: "A03 机柜进风温度波动", severity: "P2", status: "待观察", impact: "暂未影响业务，存在关联散热风险", owner: "王工", dueAt: "明天 11:00", updatedAt: "昨天 17:18", isDemo: true,
+    riskReason: "波动与 GPU 过温告警时间段重叠，需判断是否为环境侧诱因。", nextStep: "补采集机柜前后温湿度数据，并与 BMS 告警记录交叉核验。",
+    evidence: [{ id: -31, sourceName: "Atlas 900 故障讨论", author: "陈工", messageTime: "昨天 17:18", excerpt: "进风温度出现短时波动，暂未确认与 GPU 告警的直接关联。", isKey: false }],
+    actions: [{ id: -301, title: "核验 BMS 温湿度告警记录", owner: "陈工", dueAt: "明天 11:00", status: "待执行", priority: "高" }],
+  },
+];
 
 function renderInlineMarkdown(value: string, prefix: string): ReactNode[] {
   const tokens = value.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^\s)]+\))/g);
@@ -85,6 +120,8 @@ export default function Home() {
   const [isChatting, setIsChatting] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [chatLoaded, setChatLoaded] = useState(false);
+  const [issues, setIssues] = useState<Issue[]>(initialIssues);
+  const [selectedIssueId, setSelectedIssueId] = useState(-1);
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   const selected = sources.find((source) => source.id === selectedId) ?? sources[0];
@@ -98,6 +135,10 @@ export default function Home() {
     }),
     [sources],
   );
+  const selectedIssue = issues.find((issue) => issue.id === selectedIssueId) ?? issues[0];
+  const activeIssues = issues.filter((issue) => issue.status !== "已闭环");
+  const criticalIssues = activeIssues.filter((issue) => issue.severity === "P1");
+  const todayActions = useMemo(() => issues.flatMap((issue) => issue.actions.filter((action) => action.status !== "已完成").map((action) => ({ ...action, issueId: issue.id, issueTitle: issue.title, severity: issue.severity }))), [issues]);
 
   useEffect(() => {
     let restored: ChatMessage[] = [];
@@ -129,6 +170,29 @@ export default function Home() {
   useEffect(() => {
     chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: "smooth" });
   }, [chatMessages, isChatting]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadIssues() {
+      try {
+        let response = await fetch("/api/issues");
+        let payload = await response.json() as { issues?: Issue[] };
+        if (response.ok && payload.issues?.length === 0) {
+          await fetch("/api/issues", { method: "POST" });
+          response = await fetch("/api/issues");
+          payload = await response.json() as { issues?: Issue[] };
+        }
+        if (active && response.ok && payload.issues?.length) {
+          setIssues(payload.issues);
+          setSelectedIssueId(payload.issues[0].id);
+        }
+      } catch {
+        // 内网数据库未连接时保留演示台账，避免影响消息源配置和 AI 问答。
+      }
+    }
+    void loadIssues();
+    return () => { active = false; };
+  }, []);
 
   function updateSource(id: number, patch: Partial<Source>) {
     setSources((current) => current.map((source) => (source.id === id ? { ...source, ...patch } : source)));
@@ -174,6 +238,22 @@ export default function Home() {
     setSelectedId(created.id);
     setShowAdd(false);
     setNotice(`已新增“${name}”，请在公司内网环境校验目标 ID 后启用真实读取。`);
+  }
+
+  function changeIssueStatus(issueId: number, status: IssueStatus) {
+    setIssues((current) => current.map((issue) => issue.id === issueId ? { ...issue, status, updatedAt: "刚刚" } : issue));
+    if (issueId < 0) { setNotice("演示台账已更新；内网数据源接通后会自动保存为共享闭环记录。"); return; }
+    void fetch(`/api/issues/${issueId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) })
+      .then((response) => { if (!response.ok) throw new Error(); setNotice("问题状态已同步到闭环台账。"); })
+      .catch(() => setNotice("状态暂未保存，请稍后重试。"));
+  }
+
+  function changeActionStatus(issueId: number, actionId: number, status: ActionStatus) {
+    setIssues((current) => current.map((issue) => issue.id === issueId ? { ...issue, actions: issue.actions.map((action) => action.id === actionId ? { ...action, status } : action) } : issue));
+    if (issueId < 0) { setNotice("演示行动项已更新；连接内网后会同步给责任人。" ); return; }
+    void fetch(`/api/issues/${issueId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actionId, actionStatus: status }) })
+      .then((response) => { if (!response.ok) throw new Error(); setNotice(status === "已完成" ? "行动项已完成，闭环台账已更新。" : "行动项进展已更新。"); })
+      .catch(() => setNotice("行动项暂未保存，请稍后重试。"));
   }
 
   async function askQuestion(event: FormEvent<HTMLFormElement>) {
@@ -231,6 +311,7 @@ export default function Home() {
         <nav aria-label="主导航">
           <a className="nav-item active" href="#overview"><span>◈</span>总览</a>
           <a className="nav-item" href="#sources"><span>⌁</span>消息源</a>
+          <a className="nav-item" href="#issues"><span>●</span>问题闭环</a>
           <a className="nav-item" href="#reports"><span>▤</span>报告中心</a>
           <a className="nav-item" href="#chat"><span>✦</span>智能追问</a>
           <a className="nav-item" href="#automation"><span>◷</span>自动化</a>
@@ -257,10 +338,37 @@ export default function Home() {
 
         <section className="metrics" id="overview" aria-label="巡检概览">
           <article className="metric-card emphasis"><p>本次可读取消息</p><strong>{totalMessages}</strong><span>来自 {enabledSources.length} 个已启用消息源</span></article>
-          <article className="metric-card"><p>需要持续跟进</p><strong>3</strong><span className="warning-text">其中 1 项存在业务风险</span></article>
+          <article className="metric-card"><p>需要持续跟进</p><strong>{activeIssues.length}</strong><span className="warning-text">其中 {criticalIssues.length} 项为 P1 风险</span></article>
           <article className="metric-card"><p>上次执行</p><strong className="time-value">{lastRun}</strong><span>自动任务：每日 08:00</span></article>
-          <article className="metric-card"><p>报告接收目标</p><strong>2</strong><span>已启用，等待人工确认发送</span></article>
+          <article className="metric-card"><p>今日待办</p><strong>{todayActions.length}</strong><span>{todayActions.filter((action) => action.priority === "紧急").length} 项需要优先推进</span></article>
         </section>
+
+        <section className="command-grid" id="issues" aria-label="问题闭环台账">
+          <section className="panel issue-register">
+            <div className="panel-heading"><div><p className="eyebrow">问题闭环台账</p><h2>今天要盯住哪些问题？</h2></div><span className="demo-chip">演示数据</span></div>
+            <div className="issue-list">
+              {issues.map((issue) => <button className={`issue-row ${selectedIssue?.id === issue.id ? "selected" : ""}`} key={issue.id} onClick={() => setSelectedIssueId(issue.id)}>
+                <span className={`severity-dot ${issue.severity}`}>{issue.severity}</span>
+                <span className="issue-row-main"><strong>{issue.title}</strong><small>{issue.impact}</small><em>责任人：{issue.owner} · {issue.dueAt ?? "未设截止时间"}</em></span>
+                <span className={`issue-status ${issue.status}`}>{issue.status}</span>
+              </button>)}
+            </div>
+            <div className="issue-register-footer"><span>每个问题都带有责任人、截止时间、证据与行动项</span><button className="small-link" onClick={() => setNotice("真实消息接通后，AI 会自动归并相似讨论并创建问题卡片。")}>自动归并说明 →</button></div>
+          </section>
+          <aside className="panel today-panel">
+            <div className="panel-heading compact"><div><p className="eyebrow">今日必办</p><h2>先处理这 {todayActions.length} 件事</h2></div><span className="today-count">{todayActions.filter((action) => action.priority === "紧急").length} 紧急</span></div>
+            <div className="today-action-list">{todayActions.map((action) => <button className="today-action" key={`${action.issueId}-${action.id}`} onClick={() => setSelectedIssueId(action.issueId)}><span className={`action-check ${action.status === "进行中" ? "working" : ""}`}>{action.status === "进行中" ? "···" : "○"}</span><span><b>{action.title}</b><small>{action.issueTitle} · {action.owner} · {action.dueAt}</small></span><em>{action.priority}</em></button>)}</div>
+          </aside>
+        </section>
+
+        {selectedIssue && <section className="panel issue-detail-panel" aria-label="所选问题详情">
+          <div className="panel-heading"><div><p className="eyebrow">{selectedIssue.severity} · {selectedIssue.status} · 责任人 {selectedIssue.owner}</p><h2>{selectedIssue.title}</h2></div><label className="issue-status-select">状态<select value={selectedIssue.status} onChange={(event) => changeIssueStatus(selectedIssue.id, event.target.value as IssueStatus)}><option>处理中</option><option>待协调</option><option>待观察</option><option>已闭环</option></select></label></div>
+          <div className="issue-detail-grid">
+            <div className="risk-brief"><span>风险判断</span><p>{selectedIssue.riskReason}</p><span>下一步</span><p>{selectedIssue.nextStep}</p><small>最近更新：{selectedIssue.updatedAt} · {selectedIssue.isDemo ? "当前为演示消息证据" : "已同步闭环台账"}</small></div>
+            <div className="evidence-timeline"><div className="detail-label">证据时间线 <small>关键结论可追溯到原始消息</small></div>{selectedIssue.evidence.map((item) => <div className="evidence-item" key={item.id}><span className={item.isKey ? "evidence-key" : "evidence-dot"} /><div><b>{item.messageTime} · {item.author}</b><p>{item.excerpt}</p><small>{item.sourceName} · 原消息接通后可跳转</small></div></div>)}</div>
+            <div className="action-board"><div className="detail-label">行动项 <small>完成后自动留痕</small></div>{selectedIssue.actions.map((action) => <div className="action-item" key={action.id}><button className={`action-complete ${action.status === "已完成" ? "done" : ""}`} aria-label={`将${action.title}标记为${action.status === "已完成" ? "待执行" : "已完成"}`} onClick={() => changeActionStatus(selectedIssue.id, action.id, action.status === "已完成" ? "待执行" : "已完成")}>{action.status === "已完成" ? "✓" : ""}</button><div><b>{action.title}</b><small>{action.owner} · {action.dueAt ?? "未设截止时间"} · {action.status}</small></div><span className={`priority ${action.priority}`}>{action.priority}</span></div>)}</div>
+          </div>
+        </section>}
 
         <section className="workspace-grid">
           <section className="panel sources-panel" id="sources">

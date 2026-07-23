@@ -22,3 +22,42 @@ export const reportRuns = sqliteTable("report_runs", {
   startedAt: text("started_at").notNull().default("CURRENT_TIMESTAMP"),
   completedAt: text("completed_at"),
 });
+
+export const issues = sqliteTable("issues", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  severity: text("severity").notNull(),
+  status: text("status").notNull().default("处理中"),
+  impact: text("impact").notNull().default("影响待核实"),
+  owner: text("owner").notNull().default("待认领"),
+  dueAt: text("due_at"),
+  updatedAt: text("updated_at").notNull().default("CURRENT_TIMESTAMP"),
+  riskReason: text("risk_reason").notNull().default(""),
+  nextStep: text("next_step").notNull().default(""),
+  isDemo: integer("is_demo", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default("CURRENT_TIMESTAMP"),
+  closedAt: text("closed_at"),
+});
+
+export const issueEvidence = sqliteTable("issue_evidence", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  issueId: integer("issue_id").notNull(),
+  sourceName: text("source_name").notNull(),
+  author: text("author").notNull(),
+  messageTime: text("message_time").notNull(),
+  excerpt: text("excerpt").notNull(),
+  isKey: integer("is_key", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull().default("CURRENT_TIMESTAMP"),
+});
+
+export const actionItems = sqliteTable("action_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  issueId: integer("issue_id").notNull(),
+  title: text("title").notNull(),
+  owner: text("owner").notNull().default("待认领"),
+  dueAt: text("due_at"),
+  status: text("status").notNull().default("待执行"),
+  priority: text("priority").notNull().default("普通"),
+  updatedAt: text("updated_at").notNull().default("CURRENT_TIMESTAMP"),
+  createdAt: text("created_at").notNull().default("CURRENT_TIMESTAMP"),
+});
