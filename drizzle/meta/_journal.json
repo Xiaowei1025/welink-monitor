@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1784824623476,
+      "tag": "0000_wild_mindworm",
+      "breakpoints": true
+    }
+  ]
+}
