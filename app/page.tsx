@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 type SourceKind = "通报群" | "讨论群" | "个人";
 type Source = {
@@ -27,6 +27,51 @@ const recipients = [
   { name: "重大问题通报", target: "群 ID 7720…890", enabled: false },
 ];
 
+type ChatRole = "user" | "assistant";
+type ChatMessage = { id: string; role: ChatRole; content: string };
+
+const CHAT_STORAGE_KEY = "welink-monitor-chat-history-v1";
+
+function renderInlineMarkdown(value: string, prefix: string): ReactNode[] {
+  const tokens = value.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^\s)]+\))/g);
+  return tokens.filter(Boolean).map((token, index) => {
+    const key = `${prefix}-${index}`;
+    if (token.startsWith("**") && token.endsWith("**")) return <strong key={key}>{token.slice(2, -2)}</strong>;
+    if (token.startsWith("`") && token.endsWith("`")) return <code key={key}>{token.slice(1, -1)}</code>;
+    const link = token.match(/^\[([^\]]+)\]\(([^\s)]+)\)$/);
+    if (link) return <a key={key} href={link[2]} target="_blank" rel="noreferrer">{link[1]}</a>;
+    return token;
+  });
+}
+
+function MarkdownMessage({ content }: { content: string }) {
+  const blocks: ReactNode[] = [];
+  const lines = content.split("\n");
+  let codeLines: string[] = [];
+  let inCode = false;
+
+  lines.forEach((line, index) => {
+    const key = `markdown-${index}`;
+    if (line.trim().startsWith("```")) {
+      if (inCode) blocks.push(<pre className="chat-code" key={key}>{codeLines.join("\n")}</pre>);
+      codeLines = [];
+      inCode = !inCode;
+      return;
+    }
+    if (inCode) { codeLines.push(line); return; }
+    if (!line.trim()) { blocks.push(<div className="markdown-space" key={key} />); return; }
+    if (line.startsWith("### ")) { blocks.push(<h4 key={key}>{renderInlineMarkdown(line.slice(4), key)}</h4>); return; }
+    if (line.startsWith("## ")) { blocks.push(<h3 key={key}>{renderInlineMarkdown(line.slice(3), key)}</h3>); return; }
+    if (line.startsWith("# ")) { blocks.push(<h2 key={key}>{renderInlineMarkdown(line.slice(2), key)}</h2>); return; }
+    if (/^[-*]\s+/.test(line)) { blocks.push(<div className="markdown-list" key={key}><span>•</span><p>{renderInlineMarkdown(line.replace(/^[-*]\s+/, ""), key)}</p></div>); return; }
+    if (/^\d+\.\s+/.test(line)) { blocks.push(<div className="markdown-list ordered" key={key}><span>{line.match(/^\d+/)?.[0]}.</span><p>{renderInlineMarkdown(line.replace(/^\d+\.\s+/, ""), key)}</p></div>); return; }
+    if (line.startsWith("> ")) { blocks.push(<blockquote key={key}>{renderInlineMarkdown(line.slice(2), key)}</blockquote>); return; }
+    blocks.push(<p key={key}>{renderInlineMarkdown(line, key)}</p>);
+  });
+  if (inCode) blocks.push(<pre className="chat-code" key="markdown-unclosed">{codeLines.join("\n")}</pre>);
+  return <div className="markdown-message">{blocks}</div>;
+}
+
 export default function Home() {
   const [sources, setSources] = useState(initialSources);
   const [selectedId, setSelectedId] = useState(2);
@@ -35,6 +80,12 @@ export default function Home() {
   const [showAdd, setShowAdd] = useState(false);
   const [notice, setNotice] = useState("AI 分析服务已接入 · WeLink 消息读取仍等待公司内网桥接");
   const [analysisReport, setAnalysisReport] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatDraft, setChatDraft] = useState("");
+  const [isChatting, setIsChatting] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [chatLoaded, setChatLoaded] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
 
   const selected = sources.find((source) => source.id === selectedId) ?? sources[0];
   const enabledSources = sources.filter((source) => source.enabled);
@@ -47,6 +98,37 @@ export default function Home() {
     }),
     [sources],
   );
+
+  useEffect(() => {
+    let restored: ChatMessage[] = [];
+    try {
+      const saved = window.localStorage.getItem(CHAT_STORAGE_KEY);
+      const parsed = saved ? JSON.parse(saved) : [];
+      if (Array.isArray(parsed)) {
+        restored = parsed.slice(-20).flatMap((item, index) => {
+          if (!item || typeof item !== "object") return [];
+          const message = item as Partial<ChatMessage>;
+          if ((message.role !== "user" && message.role !== "assistant") || typeof message.content !== "string") return [];
+          return [{ id: typeof message.id === "string" ? message.id : `saved-${index}`, role: message.role, content: message.content.slice(0, 8000) }];
+        });
+      }
+    } catch {
+      window.localStorage.removeItem(CHAT_STORAGE_KEY);
+    }
+    const timer = window.setTimeout(() => {
+      setChatMessages(restored);
+      setChatLoaded(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (chatLoaded) window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatMessages.slice(-20)));
+  }, [chatLoaded, chatMessages]);
+
+  useEffect(() => {
+    chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [chatMessages, isChatting]);
 
   function updateSource(id: number, patch: Partial<Source>) {
     setSources((current) => current.map((source) => (source.id === id ? { ...source, ...patch } : source)));
@@ -94,6 +176,53 @@ export default function Home() {
     setNotice(`已新增“${name}”，请在公司内网环境校验目标 ID 后启用真实读取。`);
   }
 
+  async function askQuestion(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const question = chatDraft.trim();
+    if (!question || isChatting) return;
+    const userMessage: ChatMessage = { id: `user-${Date.now()}`, role: "user", content: question };
+    const assistantMessage: ChatMessage = { id: `assistant-${Date.now()}`, role: "assistant", content: "" };
+    const conversation = [...chatMessages, userMessage];
+    setChatMessages((current) => [...current, userMessage, assistantMessage]);
+    setChatDraft("");
+    setChatError(null);
+    setIsChatting(true);
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: conversation.slice(-12).map(({ role, content }) => ({ role, content })),
+          context: { report: analysisReport, sources: enabledSources },
+        }),
+      });
+      if (!response.ok || !response.body) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(payload?.error ?? "智能问答服务暂时不可用。");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let answer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        answer += decoder.decode(value, { stream: true });
+        const partial = answer;
+        setChatMessages((current) => current.map((message) => message.id === assistantMessage.id ? { ...message, content: partial } : message));
+      }
+      answer += decoder.decode();
+      if (!answer.trim()) throw new Error("智能问答服务未返回内容。");
+      setChatMessages((current) => current.map((message) => message.id === assistantMessage.id ? { ...message, content: answer } : message));
+    } catch (error) {
+      setChatMessages((current) => current.filter((message) => message.id !== assistantMessage.id));
+      setChatError(error instanceof Error ? error.message : "智能问答服务暂时不可用。");
+    } finally {
+      setIsChatting(false);
+    }
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -103,6 +232,7 @@ export default function Home() {
           <a className="nav-item active" href="#overview"><span>◈</span>总览</a>
           <a className="nav-item" href="#sources"><span>⌁</span>消息源</a>
           <a className="nav-item" href="#reports"><span>▤</span>报告中心</a>
+          <a className="nav-item" href="#chat"><span>✦</span>智能追问</a>
           <a className="nav-item" href="#automation"><span>◷</span>自动化</a>
         </nav>
         <div className="sidebar-bottom">
@@ -191,6 +321,26 @@ export default function Home() {
             <div className="recipient-list">{recipients.map((recipient) => <div className="recipient-row" key={recipient.name}><span className="avatar">{recipient.name.slice(0, 1)}</span><span><b>{recipient.name}</b><small>{recipient.target}</small></span><i className={recipient.enabled ? "toggle on" : "toggle"}>{recipient.enabled ? "开" : "关"}</i></div>)}</div>
             <button className="outline-button" onClick={() => setNotice("已生成报告发送预览。真实发送将在公司内网桥接服务配置完成后启用。")}>生成发送预览</button>
           </aside>
+        </section>
+
+        <section className="panel chat-panel" id="chat" aria-label="智能追问">
+          <div className="panel-heading chat-heading">
+            <div><p className="eyebrow">智能追问</p><h2>继续问，直到问题说清楚。</h2></div>
+            <button className="text-button" disabled={chatMessages.length === 0 || isChatting} onClick={() => { setChatMessages([]); setChatError(null); }}>清空对话</button>
+          </div>
+          <div className="chat-context"><span>✦</span><p>AI 会参考当前巡检报告和已启用消息源回答。真实 WeLink 聊天正文接入前，无法确认未提供的故障细节。</p></div>
+          <div className="chat-messages" ref={chatScrollRef} aria-live="polite" aria-label="问答历史">
+            {chatMessages.length === 0 && <div className="chat-empty"><span>✦</span><div><b>从一个问题开始</b><p>例如：这个问题的风险等级如何？下一步应该找谁跟进？</p></div></div>}
+            {chatMessages.map((message) => <article className={`chat-bubble ${message.role}`} key={message.id}>
+              <span className="chat-avatar">{message.role === "user" ? "我" : "AI"}</span>
+              <div className="chat-bubble-body">{message.role === "assistant" ? (message.content ? <MarkdownMessage content={message.content} /> : <span className="typing" aria-label="正在思考"><i /><i /><i /></span>) : <p>{message.content}</p>}</div>
+            </article>)}
+          </div>
+          {chatError && <p className="chat-error" role="alert">{chatError}</p>}
+          <form className="chat-composer" onSubmit={askQuestion}>
+            <textarea aria-label="向巡检助手提问" value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) event.currentTarget.form?.requestSubmit(); }} placeholder="针对当前问题继续提问，例如：请列出今天必须推进的三件事" rows={2} disabled={isChatting} />
+            <div><span>Ctrl / ⌘ + Enter 发送 · 对话仅保存在此浏览器</span><button className="primary-button" type="submit" disabled={!chatDraft.trim() || isChatting}>{isChatting ? "回答中…" : "发送"}</button></div>
+          </form>
         </section>
 
         <section className="panel automation" id="automation">
