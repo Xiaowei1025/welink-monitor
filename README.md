@@ -17,8 +17,10 @@
 1. 安装 Node.js 22.13 或更高版本。
 2. 将 `.env.example` 复制为 `.env`，填写公司批准的 AI 服务地址、模型和服务端密钥。
 3. macOS/Linux 执行：`chmod +x scripts/run-local.sh && ./scripts/run-local.sh`。
-4. Windows 双击：`scripts\\run-local.cmd`。
-5. 浏览器打开 `http://127.0.0.1:4173`。
+4. Windows：双击项目根目录中的 `start-windows.cmd`。首次运行会自动安装依赖、创建 `.env`并用记事本打开它；填写后关闭记事本，再双击一次即可。
+5. 启动脚本会在服务就绪后自动打开 `http://127.0.0.1:4173`。保留命令行窗口即保持运行，按 `Ctrl+C` 可停止。
+
+Windows 使用时请使用 Node.js 官方 Windows 安装包安装，不要只解压 `node.exe`；`npm` 需随 Node.js 一起安装。
 
 首次启动会自动初始化本地问题台账；数据存放在 `.wrangler/state/`。本机模式只适用于个人使用和调试。
 

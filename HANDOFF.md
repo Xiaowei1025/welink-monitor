@@ -12,7 +12,7 @@
 - 样式：`app/globals.css`。
 - 持久化结构：`db/schema.ts` 定义消息源、报告、问题、证据与行动项表；迁移位于 `drizzle/`。
 - API：`app/api/analyze/route.ts`、`app/api/chat/route.ts`、`app/api/issues/`；聊天接口以流式文本返回，浏览器端渲染 Markdown 与表格。
-- 本地运行：`scripts/run-local.sh`（macOS/Linux）、`scripts/run-local.cmd`（Windows）会初始化 `.wrangler/state/` 中的本地 D1 数据库，再启动网页。该方式没有 ChatGPT、Google 或外部网页登录门禁。
+- 本地运行：`scripts/run-local.sh`（macOS/Linux）、`start-windows.cmd`（Windows 根目录一键入口，内部调用 `scripts/run-local.cmd`）会初始化 `.wrangler/state/` 中的本地 D1 数据库，再启动网页。Windows 脚本会检查 Node.js 22.13+、自动安装依赖、生成 `.env` 并延迟打开浏览器。该方式没有 ChatGPT、Google 或外部网页登录门禁。
 - 配置模板：`.env.example`。真实 `.env` 必须只存在于内网服务器或受管密钥系统。
 - AI 适配：`app/api/analyze/route.ts` 通过 OpenAI Chat Completions 兼容接口调用模型；密钥只从 `AI_API_KEY` 读取。
 
@@ -47,7 +47,7 @@ welink-cli im send-to-user --receiver "<工号>" --text "<报告>"
 
 1. Node.js 版本必须为 22.13 或更高。
 2. 在项目目录复制 `.env.example` 为 `.env`，并仅在服务器文件中配置 `AI_BASE_URL`、`AI_API_KEY`、`AI_MODEL`；设置文件权限为仅运行账户可读。
-3. 执行 `./scripts/run-local.sh`。脚本会执行 `wrangler d1 migrations apply ... --local`，数据库文件保存在 `.wrangler/state/`。
+3. macOS/Linux 执行 `./scripts/run-local.sh`；Windows 双击 `start-windows.cmd`。脚本会执行 `wrangler d1 migrations apply ... --local`，数据库文件保存在 `.wrangler/state/`。
 4. 单机使用时只访问 `http://127.0.0.1:4173`。多人使用时通过内网 Nginx 反向代理访问，应用进程仍只绑定 `127.0.0.1`。
 5. 打包源代码使用 `./scripts/package-local.sh`；生成的包排除 `.env`、`node_modules`、`.wrangler`、构建产物和发布目录。
 
