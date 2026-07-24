@@ -4,14 +4,15 @@
 
 该应用是服务器硬件维护人员的 WeLink 消息巡检工具。网页只负责配置、触发、查看报告和确认发送。**浏览器绝不能直接执行 `welink-cli`，也不能保存 WeLink 或模型凭证。** 所有真实通信在公司内网桥接服务中完成。
 
-当前界面是安全演示模式，示例数据仅用于展示交互，未实际读取、保存或发送企业消息。
+当前界面是安全演示模式，示例数据仅用于展示交互，未实际读取、保存或发送企业消息。问题卡片、证据和行动项可保存到本地 D1 台账；真实 WeLink 消息接入后再将演示数据替换为实际数据。
 
 ## 已实现内容
 
-- 网页：`app/page.tsx`，支持新增、编辑、删除、启停消息源；一键分析、发送预览和自动化规则展示。
+- 网页：`app/page.tsx`，支持新增、编辑、删除、启停消息源；一键分析、发送预览、自动化规则、问题闭环台账、行动项和流式智能追问。
 - 样式：`app/globals.css`。
-- 持久化结构：`db/schema.ts` 定义 `message_sources` 与 `report_runs` 两张 D1 表。
-- 平台绑定：`.openai/hosting.json` 已声明 `DB` D1 逻辑绑定。
+- 持久化结构：`db/schema.ts` 定义消息源、报告、问题、证据与行动项表；迁移位于 `drizzle/`。
+- API：`app/api/analyze/route.ts`、`app/api/chat/route.ts`、`app/api/issues/`；聊天接口以流式文本返回，浏览器端渲染 Markdown 与表格。
+- 本地运行：`scripts/run-local.sh`（macOS/Linux）、`scripts/run-local.cmd`（Windows）会初始化 `.wrangler/state/` 中的本地 D1 数据库，再启动网页。该方式没有 ChatGPT、Google 或外部网页登录门禁。
 - 配置模板：`.env.example`。真实 `.env` 必须只存在于内网服务器或受管密钥系统。
 - AI 适配：`app/api/analyze/route.ts` 通过 OpenAI Chat Completions 兼容接口调用模型；密钥只从 `AI_API_KEY` 读取。
 
@@ -40,6 +41,29 @@ welink-cli im send-to-user --receiver "<工号>" --text "<报告>"
 
 标准化消息字段至少包含 `messageId`、`conversationId`、`sentAt`、`senderAccount`、`senderName`、`contentType`、`text`、`attachments`、`replyToMessageId`。需要先拿到真实 CLI 的 JSON/文本样例再完成解析器；当前 `welink-cli.md` 未给出 IM 命令的结构化输出格式。
 
+## 内网本地部署交接
+
+### 启动与数据
+
+1. Node.js 版本必须为 22.13 或更高。
+2. 在项目目录复制 `.env.example` 为 `.env`，并仅在服务器文件中配置 `AI_BASE_URL`、`AI_API_KEY`、`AI_MODEL`；设置文件权限为仅运行账户可读。
+3. 执行 `./scripts/run-local.sh`。脚本会执行 `wrangler d1 migrations apply ... --local`，数据库文件保存在 `.wrangler/state/`。
+4. 单机使用时只访问 `http://127.0.0.1:4173`。多人使用时通过内网 Nginx 反向代理访问，应用进程仍只绑定 `127.0.0.1`。
+5. 打包源代码使用 `./scripts/package-local.sh`；生成的包排除 `.env`、`node_modules`、`.wrangler`、构建产物和发布目录。
+
+### OpenEuler 运行
+
+- 完整步骤见 `deploy/OPEN_EULER_DEPLOY.md`。
+- `deploy/welink-monitor.service` 适用于 systemd；应使用专用低权限账户运行。
+- `deploy/nginx-welink-monitor.conf` 仅是反向代理示例。上线前按公司策略配置 TLS、访问控制、日志和审计。
+- 也提供 `Dockerfile` 与 `compose.yaml`；容器卷必须持久化 `/opt/welink-monitor/.wrangler`，否则台账会在重建容器后丢失。
+
+### 安全边界
+
+- 本地运行不等于浏览器直接拥有 CLI 或模型凭证。所有密钥仍只在运行服务的机器上保存。
+- 正式多人部署不能将个人电脑设为共享服务，也不能把 `0.0.0.0:4173` 直接暴露到不受控网段。
+- 真实 WeLink CLI 只能部署在受控内网桥接机，桥接 API 必须具备服务令牌、命令白名单、输入校验、审计和最小权限。
+
 ## 执行链路
 
 1. 读取所有 `enabled=true` 的消息源。
@@ -59,7 +83,7 @@ welink-cli im send-to-user --receiver "<工号>" --text "<报告>"
 
 ## 尚需完成
 
-- 生成 D1 migration 并实现消息源、接收方、任务、报告的真实 API。
+- 实现消息源、接收方、任务、报告的真实 API，并将真实消息归并为问题卡片、证据和行动项。
 - 接入公司 SSO、管理员和普通查看者角色。
 - 实现桥接服务与 `welink-cli` 子进程的安全封装，禁止用户输入进入 shell。
 - 将 CLI 输出转换为标准化 JSON，补齐群名到群 ID 的校验流程。

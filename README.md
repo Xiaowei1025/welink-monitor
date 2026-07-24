@@ -8,6 +8,26 @@
 
 本地和外部环境均处于安全演示模式：不会连接或发送 WeLink 消息。真实执行必须部署在公司内网，并通过后端桥接服务调用 `welink-cli`。
 
+## 无外部登录的本地／内网运行
+
+当前外部预览链接带有平台登录门禁，仅用于演示。正式交付请使用本地运行包或公司内网服务器；此模式不依赖 ChatGPT、Google 或外部账号。
+
+### 个人本机启动
+
+1. 安装 Node.js 22.13 或更高版本。
+2. 将 `.env.example` 复制为 `.env`，填写公司批准的 AI 服务地址、模型和服务端密钥。
+3. macOS/Linux 执行：`chmod +x scripts/run-local.sh && ./scripts/run-local.sh`。
+4. Windows 双击：`scripts\\run-local.cmd`。
+5. 浏览器打开 `http://127.0.0.1:4173`。
+
+首次启动会自动初始化本地问题台账；数据存放在 `.wrangler/state/`。本机模式只适用于个人使用和调试。
+
+### 内网共享服务器
+
+推荐将巡检台部署在一台受控内网服务器，再由 Nginx 提供内网访问。这样 AI 密钥、WeLink CLI 登录态、每日定时任务和问题台账都集中保存，用户只需打开内网地址即可使用。
+
+OpenEuler、Docker/Podman 和 systemd 的完整步骤见 [deploy/OPEN_EULER_DEPLOY.md](./deploy/OPEN_EULER_DEPLOY.md)。
+
 ## 公司内网接入
 
 1. 在内网服务器安装并登录 `welink-cli`，使用 `welink-cli auth status` 校验登录状态。

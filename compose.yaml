@@ -1,0 +1,17 @@
+services:
+  welink-monitor:
+    build: .
+    container_name: welink-monitor
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      WELINK_MONITOR_HOST: 0.0.0.0
+      WELINK_MONITOR_PORT: 4173
+    ports:
+      - "4173:4173"
+    volumes:
+      - welink_monitor_state:/opt/welink-monitor/.wrangler
+
+volumes:
+  welink_monitor_state:

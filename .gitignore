@@ -40,3 +40,10 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/releases/
+
+# Local rendering assets for the end-user guide; the delivered .docx is tracked.
+/docs/assets/
+/docs/build_user_guide.py
+/docs/fonts/
+/docs/qa*/

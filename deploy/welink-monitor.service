@@ -1,0 +1,19 @@
+[Unit]
+Description=WeLink 巡检台（内网本地运行）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=welink
+WorkingDirectory=/opt/welink-monitor
+Environment=WELINK_MONITOR_PORT=4173
+Environment=WRANGLER_LOG_PATH=/var/log/welink-monitor/wrangler.log
+ExecStart=/opt/welink-monitor/scripts/run-local.sh
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
